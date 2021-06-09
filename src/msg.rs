@@ -312,7 +312,6 @@ pub enum QueryMsg {
     TokenInfo {},
     TokenConfig {},
     ContractStatus {},
-    ExchangeRate {},
     Allowance {
         owner: HumanAddr,
         spender: HumanAddr,
@@ -376,10 +375,6 @@ pub enum QueryAnswer {
     },
     ContractStatus {
         status: ContractStatusLevel,
-    },
-    ExchangeRate {
-        rate: Uint128,
-        denom: String,
     },
     Allowance {
         spender: HumanAddr,

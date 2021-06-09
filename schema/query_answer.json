@@ -26,12 +26,14 @@
               "minimum": 0.0
             },
             "maximum_supply": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint128",
-              "minimum": 0.0
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "name": {
               "type": "string"
@@ -102,29 +104,6 @@
           "properties": {
             "status": {
               "$ref": "#/definitions/ContractStatusLevel"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "exchange_rate"
-      ],
-      "properties": {
-        "exchange_rate": {
-          "type": "object",
-          "required": [
-            "denom",
-            "rate"
-          ],
-          "properties": {
-            "denom": {
-              "type": "string"
-            },
-            "rate": {
-              "$ref": "#/definitions/Uint128"
             }
           }
         }

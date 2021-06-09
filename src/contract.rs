@@ -312,6 +312,7 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     };
 
     to_binary(&QueryAnswer::TokenInfo {
+        admin: constants.admin,
         name: constants.name,
         symbol: constants.symbol,
         decimals: constants.decimals,
@@ -3570,11 +3571,13 @@ mod tests {
         let query_answer: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
         match query_answer {
             QueryAnswer::TokenInfo {
+                admin,
                 name,
                 symbol,
                 decimals,
                 total_supply,
             } => {
+                assert_eq!(admin, init_admin);
                 assert_eq!(name, init_name);
                 assert_eq!(symbol, init_symbol);
                 assert_eq!(decimals, init_decimals);

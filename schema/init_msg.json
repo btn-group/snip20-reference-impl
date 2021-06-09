@@ -43,6 +43,14 @@
         "$ref": "#/definitions/InitialBalance"
       }
     },
+    "maximum_supply": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint128",
+      "minimum": 0.0
+    },
     "name": {
       "type": "string"
     },

@@ -64,6 +64,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
                     "The sum of all initial balances exceeds the maximum possible total supply",
                 ));
             }
+            ensure_maximum_supply_is_not_exceeded(msg.maximum_supply, total_supply)?;
             store_mint(
                 &mut deps.storage,
                 &canon_admin,
@@ -85,6 +86,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         decimals: msg.decimals,
         admin: admin.clone(),
         prng_seed: prng_seed_hashed.to_vec(),
+        maximum_supply: msg.maximum_supply,
         total_supply_is_public: init_config.public_total_supply(),
         deposit_is_enabled: init_config.deposit_enabled(),
         redeem_is_enabled: init_config.redeem_enabled(),
@@ -277,6 +279,23 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
     })?)
 }
 
+fn ensure_maximum_supply_is_not_exceeded(
+    maximum_supply: Option<Uint128>,
+    total_supply: u128,
+) -> StdResult<()> {
+    let max = if maximum_supply.is_none() {
+        u128::MAX
+    } else {
+        maximum_supply.unwrap().u128()
+    };
+
+    if total_supply > max {
+        return Err(StdError::generic_err("Maximum supply excceeded"));
+    }
+
+    Ok(())
+}
+
 fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     let config = ReadonlyConfig::from_storage(storage);
     let constants = config.constants()?;
@@ -316,6 +335,7 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
         name: constants.name,
         symbol: constants.symbol,
         decimals: constants.decimals,
+        maximum_supply: constants.maximum_supply,
         total_supply,
     })
 }
@@ -475,6 +495,8 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
             "This mint attempt would increase the total supply above the supported maximum",
         ));
     }
+    ensure_maximum_supply_is_not_exceeded(constants.maximum_supply, total_supply)?;
+
     config.set_total_supply(total_supply);
 
     let minter = &deps.api.canonical_address(&env.message.sender)?;
@@ -530,6 +552,7 @@ fn try_batch_mint<S: Storage, A: Api, Q: Querier>(
             ));
         }
     }
+    ensure_maximum_supply_is_not_exceeded(constants.maximum_supply, total_supply)?;
     config.set_total_supply(total_supply);
 
     let minter = &deps.api.canonical_address(&env.message.sender)?;
@@ -668,6 +691,8 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
             "This deposit would overflow the currency's total supply",
         ));
     }
+    // This needs adjusting to handle exchange rate etc
+    ensure_maximum_supply_is_not_exceeded(constants.maximum_supply, total_supply)?;
 
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
 
@@ -1648,6 +1673,7 @@ mod tests {
             decimals: 8,
             initial_balances: Some(initial_balances),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            maximum_supply: None,
             config: None,
         };
 
@@ -1693,6 +1719,7 @@ mod tests {
             decimals: 8,
             initial_balances: Some(initial_balances),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            maximum_supply: Some(Uint128(99999999999999999999)),
             config: Some(init_config),
         };
 
@@ -3552,6 +3579,7 @@ mod tests {
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            maximum_supply: Some(Uint128(99999999999999999999)),
             config: Some(init_config),
         };
         let init_result = init(&mut deps, env, init_msg);
@@ -3575,12 +3603,14 @@ mod tests {
                 name,
                 symbol,
                 decimals,
+                maximum_supply,
                 total_supply,
             } => {
                 assert_eq!(admin, init_admin);
                 assert_eq!(name, init_name);
                 assert_eq!(symbol, init_symbol);
                 assert_eq!(decimals, init_decimals);
+                assert_eq!(maximum_supply, Some(Uint128(99999999999999999999)));
                 assert_eq!(total_supply, Some(Uint128(5000)));
             }
             _ => panic!("unexpected"),
@@ -3620,6 +3650,7 @@ mod tests {
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            maximum_supply: Some(Uint128(99999999999999999999)),
             config: Some(init_config),
         };
         let init_result = init(&mut deps, env, init_msg);
@@ -3689,6 +3720,7 @@ mod tests {
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            maximum_supply: Some(Uint128(99999999999999999999)),
             config: Some(init_config),
         };
         let init_result = init(&mut deps, env, init_msg);
@@ -3746,6 +3778,7 @@ mod tests {
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            maximum_supply: Some(Uint128(99999999999999999999)),
             config: Some(init_config),
         };
         let init_result = init(&mut deps, env, init_msg);
@@ -3803,6 +3836,7 @@ mod tests {
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            maximum_supply: Some(Uint128(99999999999999999999)),
             config: Some(init_config),
         };
         let init_result = init(&mut deps, env, init_msg);
@@ -3848,6 +3882,7 @@ mod tests {
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            maximum_supply: Some(Uint128(99999999999999999999)),
             config: None,
         };
         let init_result = init(&mut deps, env, init_msg);

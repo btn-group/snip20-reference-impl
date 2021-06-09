@@ -57,3 +57,6 @@ To view the deposit/redeem exchange rate:
 All transactions are encrypted, so if you want to see the error returned by a failed transaction, you need to use the command
 
 `secretcli q compute tx <TX_HASH>`
+
+## btn.group updates
+1. Admin is displayed when querying token_info. 

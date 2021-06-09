@@ -23,6 +23,7 @@ pub struct InitMsg {
     pub decimals: u8,
     pub initial_balances: Option<Vec<InitialBalance>>,
     pub prng_seed: Binary,
+    pub maximum_supply: Option<Uint128>,
     pub config: Option<InitConfig>,
 }
 
@@ -363,6 +364,7 @@ pub enum QueryAnswer {
         name: String,
         symbol: String,
         decimals: u8,
+        maximum_supply: Option<Uint128>,
         total_supply: Option<Uint128>,
     },
     TokenConfig {

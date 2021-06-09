@@ -1,7 +1,9 @@
 use std::any::type_name;
 use std::convert::TryFrom;
 
-use cosmwasm_std::{CanonicalAddr, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage};
+use cosmwasm_std::{
+    CanonicalAddr, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
+};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
@@ -37,6 +39,7 @@ pub struct Constants {
     pub symbol: String,
     pub decimals: u8,
     pub prng_seed: Vec<u8>,
+    pub maximum_supply: Option<Uint128>,
     // privacy configuration
     pub total_supply_is_public: bool,
     // is deposit enabled

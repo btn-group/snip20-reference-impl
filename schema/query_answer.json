@@ -25,6 +25,14 @@
               "format": "uint8",
               "minimum": 0.0
             },
+            "maximum_supply": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint128",
+              "minimum": 0.0
+            },
             "name": {
               "type": "string"
             },

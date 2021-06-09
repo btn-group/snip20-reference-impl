@@ -44,12 +44,14 @@
       }
     },
     "maximum_supply": {
-      "type": [
-        "integer",
-        "null"
-      ],
-      "format": "uint128",
-      "minimum": 0.0
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Uint128"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "name": {
       "type": "string"

@@ -59,4 +59,5 @@ All transactions are encrypted, so if you want to see the error returned by a fa
 `secretcli q compute tx <TX_HASH>`
 
 ## btn.group updates
-1. Admin is displayed when querying token_info. 
+1. Admin is displayed when querying token_info.
+2. Remove ability to change contract status.

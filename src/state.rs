@@ -42,10 +42,6 @@ pub struct Constants {
     pub maximum_supply: Option<Uint128>,
     // privacy configuration
     pub total_supply_is_public: bool,
-    // is deposit enabled
-    pub deposit_is_enabled: bool,
-    // is redeem enabled
-    pub redeem_is_enabled: bool,
     // is mint enabled
     pub mint_is_enabled: bool,
     // is burn enabled

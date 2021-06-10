@@ -1,9 +1,9 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    log, to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern,
-    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
-    StdResult, Storage, Uint128,
+    log, to_binary, Api, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern, HandleResponse,
+    HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage,
+    Uint128,
 };
 
 use crate::batch;
@@ -17,9 +17,7 @@ use crate::state::{
     get_receiver_hash, read_allowance, read_viewing_key, set_receiver_hash, write_allowance,
     write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
 };
-use crate::transaction_history::{
-    get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
-};
+use crate::transaction_history::{get_transfers, get_txs, store_burn, store_mint, store_transfer};
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -88,8 +86,6 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         prng_seed: prng_seed_hashed.to_vec(),
         maximum_supply: msg.maximum_supply,
         total_supply_is_public: init_config.public_total_supply(),
-        deposit_is_enabled: init_config.deposit_enabled(),
-        redeem_is_enabled: init_config.redeem_enabled(),
         mint_is_enabled: init_config.mint_enabled(),
         burn_is_enabled: init_config.burn_enabled(),
     })?;
@@ -126,11 +122,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
             let response = match msg {
                 HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
-                HandleMsg::Redeem { amount, .. }
-                    if contract_status == ContractStatusLevel::StopAllButRedeems =>
-                {
-                    try_redeem(deps, env, amount)
-                }
                 _ => Err(StdError::generic_err(
                     "This contract is stopped and this action is not allowed",
                 )),
@@ -141,10 +132,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     }
 
     let response = match msg {
-        // Native
-        HandleMsg::Deposit { .. } => try_deposit(deps, env),
-        HandleMsg::Redeem { amount, .. } => try_redeem(deps, env, amount),
-
         // Base
         HandleMsg::Transfer {
             recipient,
@@ -321,8 +308,6 @@ fn query_token_config<S: ReadonlyStorage>(storage: &S) -> QueryResult {
 
     to_binary(&QueryAnswer::TokenConfig {
         public_total_supply: constants.total_supply_is_public,
-        deposit_enabled: constants.deposit_is_enabled,
-        redeem_enabled: constants.redeem_is_enabled,
         mint_enabled: constants.mint_is_enabled,
         burn_enabled: constants.burn_is_enabled,
     })
@@ -627,149 +612,6 @@ pub fn query_allowance<S: Storage, A: Api, Q: Querier>(
         expiration: allowance.expiration,
     };
     to_binary(&response)
-}
-
-fn try_deposit<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-) -> StdResult<HandleResponse> {
-    let mut amount = Uint128::zero();
-
-    for coin in &env.message.sent_funds {
-        if coin.denom == "uscrt" {
-            amount = coin.amount
-        } else {
-            return Err(StdError::generic_err(
-                "Tried to deposit an unsupported token",
-            ));
-        }
-    }
-
-    if amount.is_zero() {
-        return Err(StdError::generic_err("No funds were sent to be deposited"));
-    }
-
-    let raw_amount = amount.u128();
-
-    let mut config = Config::from_storage(&mut deps.storage);
-    let constants = config.constants()?;
-    if !constants.deposit_is_enabled {
-        return Err(StdError::generic_err(
-            "Deposit functionality is not enabled for this token.",
-        ));
-    }
-    let total_supply = config.total_supply();
-    if let Some(total_supply) = total_supply.checked_add(raw_amount) {
-        config.set_total_supply(total_supply);
-    } else {
-        return Err(StdError::generic_err(
-            "This deposit would overflow the currency's total supply",
-        ));
-    }
-    // This needs adjusting to handle exchange rate etc
-    ensure_maximum_supply_is_not_exceeded(constants.maximum_supply, total_supply)?;
-
-    let sender_address = deps.api.canonical_address(&env.message.sender)?;
-
-    let mut balances = Balances::from_storage(&mut deps.storage);
-    let account_balance = balances.balance(&sender_address);
-    if let Some(account_balance) = account_balance.checked_add(raw_amount) {
-        balances.set_account_balance(&sender_address, account_balance);
-    } else {
-        return Err(StdError::generic_err(
-            "This deposit would overflow your balance",
-        ));
-    }
-
-    store_deposit(
-        &mut deps.storage,
-        &sender_address,
-        amount,
-        "uscrt".to_string(),
-        &env.block,
-    )?;
-
-    let res = HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: Some(to_binary(&HandleAnswer::Deposit { status: Success })?),
-    };
-
-    Ok(res)
-}
-
-fn try_redeem<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    amount: Uint128,
-) -> StdResult<HandleResponse> {
-    let config = ReadonlyConfig::from_storage(&deps.storage);
-    let constants = config.constants()?;
-    if !constants.redeem_is_enabled {
-        return Err(StdError::generic_err(
-            "Redeem functionality is not enabled for this token.",
-        ));
-    }
-
-    let sender_address = deps.api.canonical_address(&env.message.sender)?;
-    let amount_raw = amount.u128();
-
-    let mut balances = Balances::from_storage(&mut deps.storage);
-    let account_balance = balances.balance(&sender_address);
-
-    if let Some(account_balance) = account_balance.checked_sub(amount_raw) {
-        balances.set_account_balance(&sender_address, account_balance);
-    } else {
-        return Err(StdError::generic_err(format!(
-            "insufficient funds to redeem: balance={}, required={}",
-            account_balance, amount_raw
-        )));
-    }
-
-    let mut config = Config::from_storage(&mut deps.storage);
-    let total_supply = config.total_supply();
-    if let Some(total_supply) = total_supply.checked_sub(amount_raw) {
-        config.set_total_supply(total_supply);
-    } else {
-        return Err(StdError::generic_err(
-            "You are trying to redeem more tokens than what is available in the total supply",
-        ));
-    }
-
-    let token_reserve = deps
-        .querier
-        .query_balance(&env.contract.address, "uscrt")?
-        .amount;
-    if amount > token_reserve {
-        return Err(StdError::generic_err(
-            "You are trying to redeem for more SCRT than the token has in its deposit reserve.",
-        ));
-    }
-
-    let withdrawal_coins: Vec<Coin> = vec![Coin {
-        denom: "uscrt".to_string(),
-        amount,
-    }];
-
-    store_redeem(
-        &mut deps.storage,
-        &sender_address,
-        amount,
-        constants.symbol,
-        &env.block,
-    )?;
-
-    let res = HandleResponse {
-        messages: vec![CosmosMsg::Bank(BankMsg::Send {
-            from_address: env.contract.address,
-            to_address: env.message.sender,
-            amount: withdrawal_coins,
-        })],
-        log: vec![],
-        data: Some(to_binary(&HandleAnswer::Redeem { status: Success })?),
-    };
-
-    Ok(res)
 }
 
 fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
@@ -1657,8 +1499,6 @@ mod tests {
 
     fn init_helper_with_config(
         initial_balances: Vec<InitialBalance>,
-        enable_deposit: bool,
-        enable_redeem: bool,
         enable_mint: bool,
         enable_burn: bool,
         contract_bal: u128,
@@ -1678,11 +1518,9 @@ mod tests {
         let init_config: InitConfig = from_binary(&Binary::from(
             format!(
                 "{{\"public_total_supply\":false,
-            \"enable_deposit\":{},
-            \"enable_redeem\":{},
             \"enable_mint\":{},
             \"enable_burn\":{}}}",
-                enable_deposit, enable_redeem, enable_mint, enable_burn
+                enable_mint, enable_burn
             )
             .as_bytes(),
         ))
@@ -1748,9 +1586,7 @@ mod tests {
         let handle_result: HandleAnswer = from_binary(&handle_result.data.unwrap()).unwrap();
 
         match handle_result {
-            HandleAnswer::Deposit { status }
-            | HandleAnswer::Redeem { status }
-            | HandleAnswer::Transfer { status }
+            HandleAnswer::Transfer { status }
             | HandleAnswer::Send { status }
             | HandleAnswer::Burn { status }
             | HandleAnswer::RegisterReceive { status }
@@ -1807,8 +1643,6 @@ mod tests {
             }],
             true,
             true,
-            true,
-            true,
             0,
         );
         assert_eq!(init_result.unwrap(), InitResponse::default());
@@ -1826,8 +1660,6 @@ mod tests {
             sha_256("lolz fun yay".to_owned().as_bytes())
         );
         assert_eq!(constants.total_supply_is_public, false);
-        assert_eq!(constants.deposit_is_enabled, true);
-        assert_eq!(constants.redeem_is_enabled, true);
         assert_eq!(constants.mint_is_enabled, true);
         assert_eq!(constants.burn_is_enabled, true);
     }
@@ -2314,8 +2146,6 @@ mod tests {
                 amount: Uint128(10000),
             }],
             false,
-            false,
-            false,
             true,
             0,
         );
@@ -2431,8 +2261,6 @@ mod tests {
                     amount: Uint128(10000),
                 },
             ],
-            false,
-            false,
             false,
             true,
             0,
@@ -2792,171 +2620,12 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_redeem() {
-        let (init_result, mut deps) = init_helper_with_config(
-            vec![InitialBalance {
-                address: HumanAddr("butler".to_string()),
-                amount: Uint128(5000),
-            }],
-            false,
-            true,
-            false,
-            false,
-            1000,
-        );
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        let (init_result_no_reserve, mut deps_no_reserve) = init_helper_with_config(
-            vec![InitialBalance {
-                address: HumanAddr("butler".to_string()),
-                amount: Uint128(5000),
-            }],
-            false,
-            true,
-            false,
-            false,
-            0,
-        );
-        assert!(
-            init_result_no_reserve.is_ok(),
-            "Init failed: {}",
-            init_result_no_reserve.err().unwrap()
-        );
-
-        let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: HumanAddr("butler".to_string()),
-            amount: Uint128(5000),
-        }]);
-        assert!(
-            init_result_for_failure.is_ok(),
-            "Init failed: {}",
-            init_result_for_failure.err().unwrap()
-        );
-        // test when redeem disabled
-        let handle_msg = HandleMsg::Redeem {
-            amount: Uint128(1000),
-            denom: None,
-            padding: None,
-        };
-        let handle_result = handle(&mut deps_for_failure, mock_env("butler", &[]), handle_msg);
-        let error = extract_error_msg(handle_result);
-        assert!(error.contains("Redeem functionality is not enabled for this token."));
-
-        // try to redeem when contract has 0 balance
-        let handle_msg = HandleMsg::Redeem {
-            amount: Uint128(1000),
-            denom: None,
-            padding: None,
-        };
-        let handle_result = handle(&mut deps_no_reserve, mock_env("butler", &[]), handle_msg);
-        let error = extract_error_msg(handle_result);
-        assert!(error.contains(
-            "You are trying to redeem for more SCRT than the token has in its deposit reserve."
-        ));
-
-        let handle_msg = HandleMsg::Redeem {
-            amount: Uint128(1000),
-            denom: None,
-            padding: None,
-        };
-        let handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
-        assert!(
-            handle_result.is_ok(),
-            "handle() failed: {}",
-            handle_result.err().unwrap()
-        );
-
-        let balances = ReadonlyBalances::from_storage(&deps.storage);
-        let canonical = deps
-            .api
-            .canonical_address(&HumanAddr("butler".to_string()))
-            .unwrap();
-        assert_eq!(balances.account_amount(&canonical), 4000)
-    }
-
-    #[test]
-    fn test_handle_deposit() {
-        let (init_result, mut deps) = init_helper_with_config(
-            vec![InitialBalance {
-                address: HumanAddr("lebron".to_string()),
-                amount: Uint128(5000),
-            }],
-            true,
-            false,
-            false,
-            false,
-            0,
-        );
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: HumanAddr("lebron".to_string()),
-            amount: Uint128(5000),
-        }]);
-        assert!(
-            init_result_for_failure.is_ok(),
-            "Init failed: {}",
-            init_result_for_failure.err().unwrap()
-        );
-        // test when deposit disabled
-        let handle_msg = HandleMsg::Deposit { padding: None };
-        let handle_result = handle(
-            &mut deps_for_failure,
-            mock_env(
-                "lebron",
-                &[Coin {
-                    denom: "uscrt".to_string(),
-                    amount: Uint128(1000),
-                }],
-            ),
-            handle_msg,
-        );
-        let error = extract_error_msg(handle_result);
-        assert!(error.contains("Deposit functionality is not enabled for this token."));
-
-        let handle_msg = HandleMsg::Deposit { padding: None };
-        let handle_result = handle(
-            &mut deps,
-            mock_env(
-                "lebron",
-                &[Coin {
-                    denom: "uscrt".to_string(),
-                    amount: Uint128(1000),
-                }],
-            ),
-            handle_msg,
-        );
-        assert!(
-            handle_result.is_ok(),
-            "handle() failed: {}",
-            handle_result.err().unwrap()
-        );
-
-        let balances = ReadonlyBalances::from_storage(&deps.storage);
-        let canonical = deps
-            .api
-            .canonical_address(&HumanAddr("lebron".to_string()))
-            .unwrap();
-        assert_eq!(balances.account_amount(&canonical), 6000)
-    }
-
-    #[test]
     fn test_handle_burn() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: HumanAddr("lebron".to_string()),
                 amount: Uint128(5000),
             }],
-            false,
-            false,
             false,
             true,
             0,
@@ -3011,8 +2680,6 @@ mod tests {
                 address: HumanAddr("lebron".to_string()),
                 amount: Uint128(5000),
             }],
-            false,
-            false,
             true,
             false,
             0,
@@ -3070,8 +2737,6 @@ mod tests {
                 address: HumanAddr("lebron".to_string()),
                 amount: Uint128(5000),
             }],
-            false,
-            false,
             true,
             false,
             0,
@@ -3131,8 +2796,6 @@ mod tests {
                 amount: Uint128(5000),
             }],
             false,
-            true,
-            false,
             false,
             5000,
         );
@@ -3165,18 +2828,6 @@ mod tests {
         assert_eq!(
             error,
             "This contract is stopped and this action is not allowed".to_string()
-        );
-
-        let withdraw_msg = HandleMsg::Redeem {
-            amount: Uint128(5000),
-            denom: None,
-            padding: None,
-        };
-        let handle_result = handle(&mut deps, mock_env("lebron", &[]), withdraw_msg);
-        assert!(
-            handle_result.is_ok(),
-            "Withdraw failed: {}",
-            handle_result.err().unwrap()
         );
     }
 
@@ -3216,18 +2867,6 @@ mod tests {
             error,
             "This contract is stopped and this action is not allowed".to_string()
         );
-
-        let withdraw_msg = HandleMsg::Redeem {
-            amount: Uint128(5000),
-            denom: None,
-            padding: None,
-        };
-        let handle_result = handle(&mut deps, mock_env("lebron", &[]), withdraw_msg);
-        let error = extract_error_msg(handle_result);
-        assert_eq!(
-            error,
-            "This contract is stopped and this action is not allowed".to_string()
-        );
     }
 
     #[test]
@@ -3237,8 +2876,6 @@ mod tests {
                 address: HumanAddr("bob".to_string()),
                 amount: Uint128(5000),
             }],
-            false,
-            false,
             true,
             false,
             0,
@@ -3308,8 +2945,6 @@ mod tests {
                 address: HumanAddr("bob".to_string()),
                 amount: Uint128(5000),
             }],
-            false,
-            false,
             true,
             false,
             0,
@@ -3378,8 +3013,6 @@ mod tests {
                 address: HumanAddr("bob".to_string()),
                 amount: Uint128(5000),
             }],
-            false,
-            false,
             true,
             false,
             0,
@@ -3601,11 +3234,9 @@ mod tests {
         let init_config: InitConfig = from_binary(&Binary::from(
             format!(
                 "{{\"public_total_supply\":{},
-            \"enable_deposit\":{},
-            \"enable_redeem\":{},
             \"enable_mint\":{},
             \"enable_burn\":{}}}",
-                true, false, false, true, false
+                true, true, false
             )
             .as_bytes(),
         ))
@@ -3646,14 +3277,10 @@ mod tests {
         match query_answer {
             QueryAnswer::TokenConfig {
                 public_total_supply,
-                deposit_enabled,
-                redeem_enabled,
                 mint_enabled,
                 burn_enabled,
             } => {
                 assert_eq!(public_total_supply, true);
-                assert_eq!(deposit_enabled, false);
-                assert_eq!(redeem_enabled, false);
                 assert_eq!(mint_enabled, true);
                 assert_eq!(burn_enabled, false);
             }
@@ -3928,8 +3555,6 @@ mod tests {
             }],
             true,
             true,
-            true,
-            true,
             1000,
         );
         assert!(
@@ -3957,18 +3582,6 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let handle_msg = HandleMsg::Redeem {
-            amount: Uint128(1000),
-            denom: None,
-            padding: None,
-        };
-        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
-        assert!(
-            handle_result.is_ok(),
-            "handle() failed: {}",
-            handle_result.err().unwrap()
-        );
-
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
@@ -3977,24 +3590,6 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         assert!(ensure_success(handle_result.unwrap()));
-
-        let handle_msg = HandleMsg::Deposit { padding: None };
-        let handle_result = handle(
-            &mut deps,
-            mock_env(
-                "bob",
-                &[Coin {
-                    denom: "uscrt".to_string(),
-                    amount: Uint128(1000),
-                }],
-            ),
-            handle_msg,
-        );
-        assert!(
-            handle_result.is_ok(),
-            "handle() failed: {}",
-            handle_result.err().unwrap()
-        );
 
         let handle_msg = HandleMsg::Transfer {
             recipient: HumanAddr("alice".to_string()),
@@ -4054,7 +3649,7 @@ mod tests {
         use crate::transaction_history::{RichTx, TxAction};
         let expected_transfers = [
             RichTx {
-                id: 8,
+                id: 6,
                 action: TxAction::Transfer {
                     from: HumanAddr("bob".to_string()),
                     sender: HumanAddr("bob".to_string()),
@@ -4069,7 +3664,7 @@ mod tests {
                 block_height: 12345,
             },
             RichTx {
-                id: 7,
+                id: 5,
                 action: TxAction::Transfer {
                     from: HumanAddr("bob".to_string()),
                     sender: HumanAddr("bob".to_string()),
@@ -4084,7 +3679,7 @@ mod tests {
                 block_height: 12345,
             },
             RichTx {
-                id: 6,
+                id: 4,
                 action: TxAction::Transfer {
                     from: HumanAddr("bob".to_string()),
                     sender: HumanAddr("bob".to_string()),
@@ -4099,18 +3694,7 @@ mod tests {
                 block_height: 12345,
             },
             RichTx {
-                id: 5,
-                action: TxAction::Deposit {},
-                coins: Coin {
-                    denom: "uscrt".to_string(),
-                    amount: Uint128(1000),
-                },
-                memo: None,
-                block_time: 1571797419,
-                block_height: 12345,
-            },
-            RichTx {
-                id: 4,
+                id: 3,
                 action: TxAction::Mint {
                     minter: HumanAddr("admin".to_string()),
                     recipient: HumanAddr("bob".to_string()),
@@ -4120,17 +3704,6 @@ mod tests {
                     amount: Uint128(100),
                 },
                 memo: Some("my mint message".to_string()),
-                block_time: 1571797419,
-                block_height: 12345,
-            },
-            RichTx {
-                id: 3,
-                action: TxAction::Redeem {},
-                coins: Coin {
-                    denom: "SECSEC".to_string(),
-                    amount: Uint128(1000),
-                },
-                memo: None,
                 block_time: 1571797419,
                 block_height: 12345,
             },

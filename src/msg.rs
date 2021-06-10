@@ -42,12 +42,6 @@ pub struct InitConfig {
     /// Indicates whether the total supply is public or should be kept secret.
     /// default: False
     public_total_supply: Option<bool>,
-    /// Indicates whether deposit functionality should be enabled
-    /// default: False
-    enable_deposit: Option<bool>,
-    /// Indicates whether redeem functionality should be enabled
-    /// default: False
-    enable_redeem: Option<bool>,
     /// Indicates whether mint functionality should be enabled
     /// default: False
     enable_mint: Option<bool>,
@@ -59,14 +53,6 @@ pub struct InitConfig {
 impl InitConfig {
     pub fn public_total_supply(&self) -> bool {
         self.public_total_supply.unwrap_or(false)
-    }
-
-    pub fn deposit_enabled(&self) -> bool {
-        self.enable_deposit.unwrap_or(false)
-    }
-
-    pub fn redeem_enabled(&self) -> bool {
-        self.enable_redeem.unwrap_or(false)
     }
 
     pub fn mint_enabled(&self) -> bool {
@@ -81,16 +67,6 @@ impl InitConfig {
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
-    // Native coin interactions
-    Redeem {
-        amount: Uint128,
-        denom: Option<String>,
-        padding: Option<String>,
-    },
-    Deposit {
-        padding: Option<String>,
-    },
-
     // Base ERC-20 stuff
     Transfer {
         recipient: HumanAddr,
@@ -216,14 +192,6 @@ pub enum HandleMsg {
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
-    // Native
-    Deposit {
-        status: ResponseStatus,
-    },
-    Redeem {
-        status: ResponseStatus,
-    },
-
     // Base
     Transfer {
         status: ResponseStatus,
@@ -368,8 +336,6 @@ pub enum QueryAnswer {
     },
     TokenConfig {
         public_total_supply: bool,
-        deposit_enabled: bool,
-        redeem_enabled: bool,
         mint_enabled: bool,
         burn_enabled: bool,
     },

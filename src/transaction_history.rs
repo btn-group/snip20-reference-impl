@@ -48,8 +48,6 @@ pub enum TxAction {
         burner: HumanAddr,
         owner: HumanAddr,
     },
-    Deposit {},
-    Redeem {},
 }
 
 // Note that id is a globally incrementing counter.
@@ -106,8 +104,6 @@ enum TxCode {
     Transfer = 0,
     Mint = 1,
     Burn = 2,
-    Deposit = 3,
-    Redeem = 4,
 }
 
 impl TxCode {
@@ -121,8 +117,6 @@ impl TxCode {
             0 => Ok(Transfer),
             1 => Ok(Mint),
             2 => Ok(Burn),
-            3 => Ok(Deposit),
-            4 => Ok(Redeem),
             other => Err(StdError::generic_err(format!(
                 "Unexpected Tx code in transaction history: {} Storage is corrupted.",
                 other
@@ -162,22 +156,6 @@ impl StoredTxAction {
             tx_type: TxCode::Burn.to_u8(),
             address1: Some(owner),
             address2: Some(burner),
-            address3: None,
-        }
-    }
-    fn deposit() -> Self {
-        Self {
-            tx_type: TxCode::Deposit.to_u8(),
-            address1: None,
-            address2: None,
-            address3: None,
-        }
-    }
-    fn redeem() -> Self {
-        Self {
-            tx_type: TxCode::Redeem.to_u8(),
-            address1: None,
-            address2: None,
             address3: None,
         }
     }
@@ -224,8 +202,6 @@ impl StoredTxAction {
                 let owner = api.human_address(&owner)?;
                 TxAction::Burn { burner, owner }
             }
-            TxCode::Deposit => TxAction::Deposit {},
-            TxCode::Redeem => TxAction::Redeem {},
         };
 
         Ok(action)
@@ -374,40 +350,6 @@ pub fn store_burn<S: Storage>(
         append_tx(store, &tx, owner)?;
     }
     append_tx(store, &tx, burner)?;
-
-    Ok(())
-}
-
-pub fn store_deposit<S: Storage>(
-    store: &mut S,
-    recipient: &CanonicalAddr,
-    amount: Uint128,
-    denom: String,
-    block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
-    let action = StoredTxAction::deposit();
-    let tx = StoredRichTx::new(id, action, coins, None, block);
-
-    append_tx(store, &tx, recipient)?;
-
-    Ok(())
-}
-
-pub fn store_redeem<S: Storage>(
-    store: &mut S,
-    redeemer: &CanonicalAddr,
-    amount: Uint128,
-    denom: String,
-    block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
-    let action = StoredTxAction::redeem();
-    let tx = StoredRichTx::new(id, action, coins, None, block);
-
-    append_tx(store, &tx, redeemer)?;
 
     Ok(())
 }

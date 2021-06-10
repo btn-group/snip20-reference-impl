@@ -206,10 +206,6 @@ pub enum HandleMsg {
         address: HumanAddr,
         padding: Option<String>,
     },
-    SetContractStatus {
-        level: ContractStatusLevel,
-        padding: Option<String>,
-    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -298,9 +294,6 @@ pub enum HandleAnswer {
 
     // Other
     ChangeAdmin {
-        status: ResponseStatus,
-    },
-    SetContractStatus {
         status: ResponseStatus,
     },
 }

@@ -359,6 +359,7 @@ impl QueryMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
     TokenInfo {
+        admin: HumanAddr,
         name: String,
         symbol: String,
         decimals: u8,

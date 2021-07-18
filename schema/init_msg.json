@@ -6,6 +6,7 @@
     "decimals",
     "name",
     "prng_seed",
+    "profit_distributor_contract_hash",
     "symbol"
   ],
   "properties": {
@@ -48,6 +49,9 @@
     },
     "prng_seed": {
       "$ref": "#/definitions/Binary"
+    },
+    "profit_distributor_contract_hash": {
+      "type": "string"
     },
     "symbol": {
       "type": "string"

@@ -1,16 +1,9 @@
-/// This contract implements SNIP-20 standard:
-/// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
-use cosmwasm_std::{
-    log, to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern,
-    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
-    StdResult, Storage, Uint128,
-};
-
 use crate::batch;
 use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
 };
+use crate::profit_distributor::ProfitDistributorHandleMsg;
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
@@ -21,6 +14,14 @@ use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
 };
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
+/// This contract implements SNIP-20 standard:
+/// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
+use cosmwasm_std::{
+    log, to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
+    StdResult, Storage, Uint128,
+};
+use secret_toolkit::utils::HandleCallback;
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -46,7 +47,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     }
 
     let init_config = msg.config();
-    let admin = msg.admin.unwrap_or(env.message.sender);
+    let admin = msg.admin.unwrap_or(env.message.sender.clone());
     let canon_admin = deps.api.canonical_address(&admin)?;
 
     let mut total_supply: u128 = 0;
@@ -100,7 +101,21 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     };
     config.set_minters(minters)?;
 
-    Ok(InitResponse::default())
+    let profit_distributor_set_pool_shares_token_msg =
+        ProfitDistributorHandleMsg::SetPoolSharesToken {
+            contract_hash: env.contract_code_hash.clone(),
+        };
+    let profit_distributor_set_pool_shares_token_msg_as_cosmos_msg =
+        profit_distributor_set_pool_shares_token_msg.to_cosmos_msg(
+            msg.profit_distributor_contract_hash,
+            env.message.sender,
+            None,
+        )?;
+
+    Ok(InitResponse {
+        messages: vec![profit_distributor_set_pool_shares_token_msg_as_cosmos_msg],
+        log: vec![],
+    })
 }
 
 fn pad_response(response: StdResult<HandleResponse>) -> StdResult<HandleResponse> {
@@ -1648,6 +1663,7 @@ mod tests {
             initial_balances: Some(initial_balances),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: None,
+            profit_distributor_contract_hash: mock_profit_distributor_smart_contract_code_hash(),
         };
 
         (init(&mut deps, env, init_msg), deps)
@@ -1693,6 +1709,7 @@ mod tests {
             initial_balances: Some(initial_balances),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            profit_distributor_contract_hash: mock_profit_distributor_smart_contract_code_hash(),
         };
 
         (init(&mut deps, env, init_msg), deps)
@@ -1770,6 +1787,10 @@ mod tests {
         }
     }
 
+    fn mock_profit_distributor_smart_contract_code_hash() -> String {
+        "mock-profit-distributor-smart-contract-code-hash".to_string()
+    }
+
     // Init tests
 
     #[test]
@@ -1778,7 +1799,26 @@ mod tests {
             address: HumanAddr("lebron".to_string()),
             amount: Uint128(5000),
         }]);
-        assert_eq!(init_result.unwrap(), InitResponse::default());
+        let env = mock_env("instantiator", &[]);
+        let profit_distributor_set_pool_shares_token_msg =
+            ProfitDistributorHandleMsg::SetPoolSharesToken {
+                contract_hash: env.contract_code_hash.clone(),
+            };
+        let profit_distributor_set_pool_shares_token_msg_as_cosmos_msg =
+            profit_distributor_set_pool_shares_token_msg
+                .to_cosmos_msg(
+                    mock_profit_distributor_smart_contract_code_hash(),
+                    env.message.sender,
+                    None,
+                )
+                .unwrap();
+        assert_eq!(
+            init_result.unwrap(),
+            InitResponse {
+                messages: vec![profit_distributor_set_pool_shares_token_msg_as_cosmos_msg],
+                log: vec![],
+            }
+        );
 
         let config = ReadonlyConfig::from_storage(&deps.storage);
         let constants = config.constants().unwrap();
@@ -1808,7 +1848,26 @@ mod tests {
             true,
             0,
         );
-        assert_eq!(init_result.unwrap(), InitResponse::default());
+        let env = mock_env("instantiator", &[]);
+        let profit_distributor_set_pool_shares_token_msg =
+            ProfitDistributorHandleMsg::SetPoolSharesToken {
+                contract_hash: env.contract_code_hash.clone(),
+            };
+        let profit_distributor_set_pool_shares_token_msg_as_cosmos_msg =
+            profit_distributor_set_pool_shares_token_msg
+                .to_cosmos_msg(
+                    mock_profit_distributor_smart_contract_code_hash(),
+                    env.message.sender,
+                    None,
+                )
+                .unwrap();
+        assert_eq!(
+            init_result.unwrap(),
+            InitResponse {
+                messages: vec![profit_distributor_set_pool_shares_token_msg_as_cosmos_msg],
+                log: vec![],
+            }
+        );
 
         let config = ReadonlyConfig::from_storage(&deps.storage);
         let constants = config.constants().unwrap();
@@ -3552,6 +3611,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            profit_distributor_contract_hash: mock_profit_distributor_smart_contract_code_hash(),
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(
@@ -3618,6 +3678,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            profit_distributor_contract_hash: mock_profit_distributor_smart_contract_code_hash(),
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(
@@ -3687,6 +3748,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            profit_distributor_contract_hash: mock_profit_distributor_smart_contract_code_hash(),
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(
@@ -3744,6 +3806,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            profit_distributor_contract_hash: mock_profit_distributor_smart_contract_code_hash(),
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(
@@ -3801,6 +3864,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            profit_distributor_contract_hash: mock_profit_distributor_smart_contract_code_hash(),
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(
@@ -3846,6 +3910,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: None,
+            profit_distributor_contract_hash: mock_profit_distributor_smart_contract_code_hash(),
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(

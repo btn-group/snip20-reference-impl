@@ -1,6 +1,7 @@
 mod batch;
 pub mod contract;
 pub mod msg;
+mod profit_distributor;
 mod rand;
 pub mod receiver;
 pub mod state;
